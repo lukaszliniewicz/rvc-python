@@ -1,1 +1,1 @@
-import rvc_python.infer
+"""RVC Python package."""

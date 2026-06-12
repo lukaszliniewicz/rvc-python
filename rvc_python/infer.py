@@ -62,6 +62,11 @@ class RVCInference:
         """Returns a list of available models."""
         return list(self.models.keys())
 
+    def refresh_models(self):
+        """Refresh and return the available model names."""
+        self.models = self._load_available_models()
+        return self.list_models()
+
     def load_model(self, model_name, version="v2"):
         """Loads a model into memory."""
         if model_name not in self.models:

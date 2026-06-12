@@ -1,134 +1,169 @@
-from fastapi import FastAPI, HTTPException, UploadFile, File
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response, JSONResponse
-from loguru import logger
-from pydantic import BaseModel
-import tempfile
-import base64
-import shutil
-import zipfile
+"""FastAPI service contract used by Pandrator."""
+
+from __future__ import annotations
+
 import os
+import tempfile
+import threading
+from typing import Any
 
-class SetDeviceRequest(BaseModel):
-    device: str
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi.responses import JSONResponse, Response
+from loguru import logger
 
-class ConvertAudioRequest(BaseModel):
-    audio_data: str
 
-class SetParamsRequest(BaseModel):
-    params: dict
-
-class SetModelsDirRequest(BaseModel):
-    models_dir: str
-
-def setup_routes(app: FastAPI):
-    @app.post("/convert")
-    def rvc_convert(request: ConvertAudioRequest):
-        if not app.state.rvc.current_model:
-            raise HTTPException(status_code=400, detail="No model loaded. Please load a model first.")
-
-        tmp_input = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
-        tmp_output = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
-        try:
-            logger.info("Received request to convert audio")
-            audio_data = base64.b64decode(request.audio_data)
-            tmp_input.write(audio_data)
-            input_path = tmp_input.name
-            output_path = tmp_output.name
-
-            app.state.rvc.infer_file(input_path, output_path)
-
-            output_data = tmp_output.read()
-            return Response(content=output_data, media_type="audio/wav")
-        except Exception as e:
-            logger.error(e)
-            raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
-        finally:
-            tmp_input.close()
-            tmp_output.close()
-            os.unlink(tmp_input.name)
-            os.unlink(tmp_output.name)
-
-    @app.get("/models")
-    def list_models():
-        return JSONResponse(content={"models": app.state.rvc.list_models()})
-
-    @app.post("/models/{model_name}")
-    def load_model(model_name: str):
-        try:
-            app.state.rvc.load_model(model_name)
-            return JSONResponse(content={"message": f"Model {model_name} loaded successfully"})
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=str(e))
-
-    @app.get("/params")
-    def get_params():
-        return JSONResponse(content={
-            "f0method": app.state.rvc.f0method,
-            "f0up_key": app.state.rvc.f0up_key,
-            "index_rate": app.state.rvc.index_rate,
-            "filter_radius": app.state.rvc.filter_radius,
-            "resample_sr": app.state.rvc.resample_sr,
-            "rms_mix_rate": app.state.rvc.rms_mix_rate,
-            "protect": app.state.rvc.protect
-        })
-
-    @app.post("/params")
-    def set_params(request: SetParamsRequest):
-        try:
-            app.state.rvc.set_params(**request.params)
-            return JSONResponse(content={"message": "Parameters updated successfully"})
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=str(e))
-
-    @app.post("/upload_model")
-    async def upload_models(file: UploadFile = File(...)):
-        try:
-            with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
-                shutil.copyfileobj(file.file, tmp_file)
-
-            with zipfile.ZipFile(tmp_file.name, 'r') as zip_ref:
-                zip_ref.extractall(app.state.rvc.models_dir)
-
-            os.unlink(tmp_file.name)
-
-            # Update the list of models after upload
-            app.state.rvc.models = app.state.rvc._load_available_models()
-
-            return JSONResponse(content={"message": "Models uploaded and extracted successfully"})
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
-
-    @app.post("/set_device")
-    def set_device(request: SetDeviceRequest):
-        try:
-            device = request.device
-            app.state.rvc.set_device(device)
-            return JSONResponse(content={"message": f"Device set to {device}"})
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=str(e))
-
-    @app.post("/set_models_dir")
-    def set_models_dir(request: SetModelsDirRequest):
-        try:
-            new_models_dir = request.models_dir
-            app.state.rvc.set_models_dir(new_models_dir)
-            return JSONResponse(content={"message": f"Models directory set to {new_models_dir}"})
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=str(e))
-
-def create_app():
-    app = FastAPI()
-
-    # Add CORS middleware
-    origins = ["*"]
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=origins,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+def _error(status_code: int, code: str, message: str) -> HTTPException:
+    return HTTPException(
+        status_code=status_code,
+        detail={"code": code, "message": message},
     )
 
-    setup_routes(app)
+
+def _refresh_models(rvc: Any) -> list[str]:
+    return sorted(rvc.refresh_models(), key=str.casefold)
+
+
+def _remove_file(path: str | None) -> None:
+    if not path:
+        return
+    try:
+        os.unlink(path)
+    except FileNotFoundError:
+        pass
+
+
+def create_app(rvc: Any, *, device: str | None = None) -> FastAPI:
+    """Create the RVC service around one configured inference instance."""
+    app = FastAPI(title="Pandrator RVC Service", version="1.0.0")
+    app.state.rvc = rvc
+    app.state.device = device or str(getattr(rvc, "device", "unknown"))
+    app.state.lock = threading.RLock()
+    app.state.active_params = None
+
+    @app.get("/health")
+    def health():
+        with app.state.lock:
+            return {
+                "status": "ok",
+                "ready": True,
+                "device": app.state.device,
+                "active_model": app.state.rvc.current_model,
+                "models": len(app.state.rvc.list_models()),
+            }
+
+    @app.get("/v1/models")
+    def list_models():
+        with app.state.lock:
+            models = _refresh_models(app.state.rvc)
+            return {"models": models, "active_model": app.state.rvc.current_model}
+
+    @app.post("/v1/models/refresh")
+    def refresh_models():
+        with app.state.lock:
+            models = _refresh_models(app.state.rvc)
+            return {"models": models, "active_model": app.state.rvc.current_model}
+
+    @app.post("/v1/unload")
+    def unload_model():
+        with app.state.lock:
+            app.state.rvc.unload_model()
+            app.state.active_params = None
+            return {"status": "ok"}
+
+    @app.post("/v1/convert")
+    def convert_audio(
+        audio: UploadFile = File(...),
+        model: str = Form(...),
+        pitch: int = Form(0),
+        f0_method: str = Form("rmvpe"),
+        index_rate: float = Form(0.3),
+        filter_radius: int = Form(3),
+        volume_envelope: float = Form(1.0),
+        protect: float = Form(0.3),
+        resample_sr: int = Form(40000),
+    ):
+        model = model.strip()
+        if not model:
+            raise _error(422, "model_required", "A model name is required.")
+        if f0_method not in {"rmvpe", "crepe", "harvest", "pm"}:
+            raise _error(422, "invalid_f0_method", f"Unsupported f0 method: {f0_method}")
+        if not 0.0 <= index_rate <= 1.0:
+            raise _error(422, "invalid_index_rate", "index_rate must be between 0 and 1.")
+        if not 0.0 <= volume_envelope <= 1.0:
+            raise _error(422, "invalid_volume_envelope", "volume_envelope must be between 0 and 1.")
+        if not 0.0 <= protect <= 0.5:
+            raise _error(422, "invalid_protect", "protect must be between 0 and 0.5.")
+
+        input_path = None
+        output_path = None
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as input_file:
+                input_path = input_file.name
+                input_file.write(audio.file.read())
+                input_file.flush()
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as output_file:
+                output_path = output_file.name
+
+            with app.state.lock:
+                models = _refresh_models(app.state.rvc)
+                if model not in models:
+                    raise _error(404, "model_not_found", f"RVC model '{model}' was not found.")
+
+                if app.state.rvc.current_model != model:
+                    if app.state.rvc.current_model:
+                        app.state.rvc.unload_model()
+                    app.state.rvc.load_model(model)
+                    app.state.active_params = None
+
+                params = (
+                    pitch,
+                    f0_method,
+                    index_rate,
+                    filter_radius,
+                    resample_sr,
+                    volume_envelope,
+                    protect,
+                )
+                if app.state.active_params != params:
+                    app.state.rvc.set_params(
+                        f0up_key=pitch,
+                        f0method=f0_method,
+                        index_rate=index_rate,
+                        filter_radius=filter_radius,
+                        resample_sr=resample_sr,
+                        rms_mix_rate=volume_envelope,
+                        protect=protect,
+                    )
+                    app.state.active_params = params
+
+                app.state.rvc.infer_file(input_path, output_path)
+                with open(output_path, "rb") as output_file:
+                    output_data = output_file.read()
+
+            return Response(content=output_data, media_type="audio/wav")
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.exception("RVC conversion failed")
+            with app.state.lock:
+                try:
+                    app.state.rvc.unload_model()
+                except Exception:
+                    logger.exception("Failed to unload RVC model after conversion error")
+                app.state.active_params = None
+            raise _error(500, "conversion_failed", str(exc)) from exc
+        finally:
+            _remove_file(input_path)
+            _remove_file(output_path)
+
+    @app.exception_handler(HTTPException)
+    async def http_exception_handler(_, exc: HTTPException):
+        detail = exc.detail
+        if isinstance(detail, dict) and "code" in detail:
+            return JSONResponse(status_code=exc.status_code, content={"error": detail})
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"error": {"code": "request_failed", "message": str(detail)}},
+        )
+
     return app

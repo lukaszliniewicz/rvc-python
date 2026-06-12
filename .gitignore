@@ -1,4 +1,8 @@
 *.pyc
+.pixi/
+.pytest_cache/
+__pycache__/
+*.log
 venv
 test
 base_model

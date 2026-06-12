@@ -4,11 +4,11 @@ build-backend = "hatchling.build"
 
 [project]
 name = "rvc-python"
-version = "0.1.4"
+version = "0.2.0"
 authors = [
   { name="daswer123", email="daswerq123@gmail.com" },
 ]
-description = "Use RVC via console or python scripts"
+description = "RVC inference and FastAPI service for Pandrator"
 readme = "README.md"
 requires-python = ">=3.9"
 classifiers = [
@@ -33,11 +33,35 @@ dependencies = [
   "fastapi",
   "pydantic",
   "python-multipart",
+  "torch==2.3.1",
+  "torchvision==0.18.1",
+  "torchaudio==2.3.1",
 ]
 
 [project.urls]
-Homepage = "https://github.com/daswer123/rvc-python"
-"Bug Tracker" = "https://github.com/daswer123/rvc-python/issues"
+Homepage = "https://github.com/lukaszliniewicz/rvc-python"
+"Bug Tracker" = "https://github.com/lukaszliniewicz/rvc-python/issues"
 
 [tool.hatch.build.targets.wheel]
 only-include=["rvc_python"]
+
+[tool.pixi.workspace]
+channels = ["conda-forge"]
+platforms = ["win-64"]
+requires-pixi = ">=0.68.0"
+
+[tool.pixi.dependencies]
+python = "3.11.*"
+pip = "24.*"
+ffmpeg = "*"
+
+[tool.pixi.pypi-dependencies]
+rvc-python = { path = ".", editable = true }
+
+[tool.pixi.pypi-options]
+index-url = "https://pypi.org/simple"
+extra-index-urls = ["https://download.pytorch.org/whl/cu121"]
+
+[tool.pixi.tasks]
+start = "python run.py"
+prepare = "python run.py --prepare-only"
