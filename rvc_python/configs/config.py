@@ -1,7 +1,5 @@
-import argparse
-import os
-import sys
 import json
+import os
 from multiprocessing import cpu_count
 
 import torch
@@ -28,22 +26,11 @@ version_config_list = [
 ]
 
 
-def singleton_variable(func):
-    def wrapper(*args, **kwargs):
-        if not wrapper.instance:
-            wrapper.instance = func(*args, **kwargs)
-        return wrapper.instance
-
-    wrapper.instance = None
-    return wrapper
-
-
-@singleton_variable
 class Config:
     def __init__(self,lib_dir,device,is_dml = False):
         self.lib_dir = lib_dir
-        self.device = device
-        self.is_half = True if device != "cpu" else False
+        self.device = self.normalize_device(device)
+        self.is_half = self.device.startswith(("cuda", "xpu"))
         self.use_jit = False
         self.n_cpu = 0
         self.gpu_name = None
@@ -52,6 +39,21 @@ class Config:
         self.dml = is_dml
         self.instead = ""
         self.x_pad, self.x_query, self.x_center, self.x_max = self.device_config()
+
+    @staticmethod
+    def normalize_device(device) -> str:
+        requested = str(device or "auto").strip().lower()
+        if requested in {"cpu", "cpu:0"}:
+            return "cpu"
+        if requested == "auto":
+            if torch.cuda.is_available():
+                return "cuda:0"
+            if Config.has_xpu():
+                return "xpu:0"
+            if Config.has_mps():
+                return "mps"
+            return "cpu"
+        return requested
 
     def load_config_json(self) -> dict:
         d = {}
@@ -82,27 +84,16 @@ class Config:
     def use_fp32_config(self):
         for config_file in version_config_list:
             self.json_config[config_file]["train"]["fp16_run"] = False
-            with open(f"{self.lib_dir}/configs/{config_file}", "r") as f:
-                strr = f.read().replace("true", "false")
-            with open(f"{self.lib_dir}/configs/{config_file}", "w") as f:
-                f.write(strr)
-        with open(f"{self.lib_dir}/modules/train/preprocess.py", "r") as f:
-            strr = f.read().replace("3.7", "3.0")
-        with open(f"{self.lib_dir}/modules/train/preprocess.py", "w") as f:
-            f.write(strr)
-        print("overwrite preprocess and configs.json")
 
     def device_config(self) -> tuple:
-        if torch.cuda.is_available():
-            if self.has_xpu():
-                self.device = self.instead = "xpu:0"
-                self.is_half = True
-            # We can parse cuda:0 or cuda if cuda then i_device = 0
-            
+        if self.device.startswith("cuda"):
+            if not torch.cuda.is_available():
+                raise RuntimeError("CUDA was requested, but PyTorch cannot access a CUDA device.")
             if ':' in self.device:
                 i_device = int(self.device.split(":")[-1])
             else:
-                i_device = 0  # If no number is specified, use 0 as the default value.
+                i_device = 0
+                self.device = "cuda:0"
 
             self.gpu_name = torch.cuda.get_device_name(i_device)
             if (
@@ -126,20 +117,23 @@ class Config:
                 + 0.4
             )
             if self.gpu_mem <= 4:
-                with open(f"{self.lib_dir}/modules/train/preprocess.py", "r") as f:
-                    strr = f.read().replace("3.7", "3.0")
-                with open(f"{self.lib_dir}/modules/train/preprocess.py", "w") as f:
-                    f.write(strr)
-        elif self.has_mps():
-            logger.info("No supported Nvidia GPU found, using MPS")
-            self.device = self.instead = "mps"
+                logger.info("Using low-memory inference settings.")
+        elif self.device.startswith("xpu"):
+            if not self.has_xpu():
+                raise RuntimeError("XPU was requested, but PyTorch cannot access an XPU device.")
+            self.instead = self.device
+            self.is_half = True
+        elif self.device == "mps":
+            if not self.has_mps():
+                raise RuntimeError("MPS was requested, but PyTorch cannot access MPS.")
+            self.is_half = False
+            self.use_fp32_config()
+        elif self.device == "cpu":
+            logger.info("Using CPU inference")
             self.is_half = False
             self.use_fp32_config()
         else:
-            logger.info("No supported Nvidia GPU found, using CPU")
-            self.device = self.instead = "cpu"
-            self.is_half = False
-            self.use_fp32_config()
+            raise ValueError(f"Unsupported inference device: {self.device}")
 
         if self.n_cpu == 0:
             self.n_cpu = cpu_count()
@@ -166,21 +160,21 @@ class Config:
             logger.info("Use DirectML instead")
             if (
                 os.path.exists(
-                    "venv\Lib\site-packages\onnxruntime\capi\DirectML.dll"
+                    r"venv\Lib\site-packages\onnxruntime\capi\DirectML.dll"
                 )
                 == False
             ):
                 try:
                     os.rename(
-                        "venv\Lib\site-packages\onnxruntime",
-                        "venv\Lib\site-packages\onnxruntime-cuda",
+                        r"venv\Lib\site-packages\onnxruntime",
+                        r"venv\Lib\site-packages\onnxruntime-cuda",
                     )
                 except:
                     pass
                 try:
                     os.rename(
-                        "venv\Lib\site-packages\onnxruntime-dml",
-                        "venv\Lib\site-packages\onnxruntime",
+                        r"venv\Lib\site-packages\onnxruntime-dml",
+                        r"venv\Lib\site-packages\onnxruntime",
                     )
                 except:
                     pass
@@ -192,25 +186,5 @@ class Config:
         else:
             if self.instead:
                 logger.info(f"Use {self.instead} instead")
-            if (
-                os.path.exists(
-                    "venv\Lib\site-packages\onnxruntime\capi\onnxruntime_providers_cuda.dll"
-                )
-                == False
-            ):
-                try:
-                    os.rename(
-                        "venv\Lib\site-packages\onnxruntime",
-                        "venv\Lib\site-packages\onnxruntime-dml",
-                    )
-                except:
-                    pass
-                try:
-                    os.rename(
-                        "venv\Lib\site-packages\onnxruntime-cuda",
-                        "venv\Lib\site-packages\onnxruntime",
-                    )
-                except:
-                    pass
         print("is_half:%s, device:%s" % (self.is_half, self.device))
         return x_pad, x_query, x_center, x_max

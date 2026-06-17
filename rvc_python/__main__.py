@@ -12,8 +12,11 @@ from rvc_python.infer import RVCInference
 
 
 def _resolve_device(requested_device: str) -> str:
-    if requested_device != "auto":
-        return requested_device
+    requested = str(requested_device or "auto").strip().lower()
+    if requested in {"cpu", "cpu:0"}:
+        return "cpu"
+    if requested != "auto":
+        return requested
 
     import torch
 

@@ -7,18 +7,22 @@ Windows Python 3.11 work from
 
 ## Run On Windows
 
-`run.bat` creates and maintains a dedicated Pixi environment with Python 3.11,
-Fairseq, NumPy 1.23.5, and the CUDA 12.1 builds of PyTorch 2.3.1.
+`run.bat` creates and maintains dedicated Pixi environments with Python 3.11,
+Fairseq, NumPy 1.23.5, and either CPU-only or CUDA 12.1 PyTorch 2.3.1.
 
 ```bat
 run.bat --models-dir "C:\Pandrator\Pandrator\rvc_models"
+run.bat --backend cpu --models-dir "C:\Pandrator\Pandrator\rvc_models"
+run.bat --backend cuda --models-dir "C:\Pandrator\Pandrator\rvc_models"
 ```
 
-The service binds to `127.0.0.1:8050` by default. To prepare the environment
-without starting the service:
+The default `auto` backend uses CUDA when an NVIDIA GPU is available and CPU
+otherwise. The service binds to `127.0.0.1:8050` by default. To prepare an
+environment without starting the service:
 
 ```bat
-run.bat --prepare-only
+run.bat --backend cpu --prepare-only
+run.bat --backend cuda --prepare-only
 ```
 
 ## API
@@ -60,7 +64,7 @@ The underlying inference class remains available:
 ```python
 from rvc_python.infer import RVCInference
 
-rvc = RVCInference(models_dir="rvc_models", device="cuda:0")
+rvc = RVCInference(models_dir="rvc_models", device="cpu")
 rvc.load_model("voice-name")
 rvc.infer_file("input.wav", "output.wav")
 ```

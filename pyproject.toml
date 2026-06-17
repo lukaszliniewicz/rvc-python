@@ -33,6 +33,15 @@ dependencies = [
   "fastapi",
   "pydantic",
   "python-multipart",
+]
+
+[dependency-groups]
+cpu = [
+  "torch==2.3.1",
+  "torchvision==0.18.1",
+  "torchaudio==2.3.1",
+]
+cuda = [
   "torch==2.3.1",
   "torchvision==0.18.1",
   "torchaudio==2.3.1",
@@ -60,7 +69,16 @@ rvc-python = { path = ".", editable = true }
 
 [tool.pixi.pypi-options]
 index-url = "https://pypi.org/simple"
+
+[tool.pixi.feature.cpu.pypi-options]
+extra-index-urls = ["https://download.pytorch.org/whl/cpu"]
+
+[tool.pixi.feature.cuda.pypi-options]
 extra-index-urls = ["https://download.pytorch.org/whl/cu121"]
+
+[tool.pixi.environments]
+default = ["cuda"]
+cpu = ["cpu"]
 
 [tool.pixi.tasks]
 start = "python run.py"
