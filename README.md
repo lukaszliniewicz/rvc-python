@@ -5,15 +5,15 @@ based on [daswer123/rvc-python](https://github.com/daswer123/rvc-python) and the
 Windows Python 3.11 work from
 [JarodMica/rvc-python](https://github.com/JarodMica/rvc-python).
 
-## Run On Windows
+## Run on Windows
 
 `run.bat` creates and maintains dedicated Pixi environments with Python 3.11,
 Fairseq, NumPy 1.23.5, and either CPU-only or CUDA 12.1 PyTorch 2.3.1.
 
 ```bat
-run.bat --models-dir "C:\Pandrator\Pandrator\rvc_models"
-run.bat --backend cpu --models-dir "C:\Pandrator\Pandrator\rvc_models"
-run.bat --backend cuda --models-dir "C:\Pandrator\Pandrator\rvc_models"
+run.bat --models-dir "C:\Pandrator\models\rvc"
+run.bat --backend cpu --models-dir "C:\Pandrator\models\rvc"
+run.bat --backend cuda --models-dir "C:\Pandrator\models\rvc"
 ```
 
 The default `auto` backend uses CUDA when an NVIDIA GPU is available and CPU
@@ -23,6 +23,30 @@ environment without starting the service:
 ```bat
 run.bat --backend cpu --prepare-only
 run.bat --backend cuda --prepare-only
+```
+
+## Run on Linux
+
+Linux x86_64 uses the same isolated CPU or CUDA 12.1 environments through
+`run.sh`. The launcher accepts an existing Pixi binary or downloads a pinned
+Pixi release into the parent installation directory.
+
+```bash
+./run.sh --backend cpu --models-dir "$HOME/.local/share/pandrator/models/rvc"
+./run.sh --backend cuda --models-dir "$HOME/.local/share/pandrator/models/rvc"
+./run.sh --backend cpu --prepare-only
+./run.sh --pixi-path /opt/pandrator/bin/pixi --backend cpu --prepare-only
+```
+
+`auto` selects CUDA only when `nvidia-smi` reports a working NVIDIA device;
+otherwise it selects CPU. AMD GPUs currently use the CPU backend. Linux
+aarch64 is rejected explicitly because the verified Python 3.11 Fairseq wheel
+is only available for x86_64.
+
+## Tests
+
+```bash
+pixi run --environment test test
 ```
 
 ## API

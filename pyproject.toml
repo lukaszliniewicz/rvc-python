@@ -33,6 +33,16 @@ dependencies = [
   "fastapi",
   "pydantic",
   "python-multipart",
+  "setuptools<81",
+  "hydra-core>=1.3.2",
+  "cffi",
+  "cython",
+  "regex",
+  "sacrebleu>=1.4.12",
+  "tqdm",
+  "bitarray",
+  "scikit-learn",
+  "packaging",
 ]
 
 [dependency-groups]
@@ -56,13 +66,14 @@ only-include=["rvc_python"]
 
 [tool.pixi.workspace]
 channels = ["conda-forge"]
-platforms = ["win-64"]
+platforms = ["win-64", "linux-64"]
 requires-pixi = ">=0.68.0"
 
 [tool.pixi.dependencies]
 python = "3.11.*"
 pip = "24.*"
 ffmpeg = "*"
+setuptools = "<81"
 
 [tool.pixi.pypi-dependencies]
 rvc-python = { path = ".", editable = true }
@@ -76,9 +87,17 @@ extra-index-urls = ["https://download.pytorch.org/whl/cpu"]
 [tool.pixi.feature.cuda.pypi-options]
 extra-index-urls = ["https://download.pytorch.org/whl/cu121"]
 
+[tool.pixi.feature.test.pypi-dependencies]
+pytest = "*"
+httpx = "*"
+
+[tool.pixi.feature.test.tasks]
+test = "pytest -q"
+
 [tool.pixi.environments]
 default = ["cuda"]
 cpu = ["cpu"]
+test = ["cpu", "test"]
 
 [tool.pixi.tasks]
 start = "python run.py"

@@ -77,11 +77,12 @@ set "PIXI_CACHE_DIR=%PARENT_DIR%\.pixi-cache"
 set "PIP_CACHE_DIR=%PARENT_DIR%\.pip-cache"
 set "TMP=%PARENT_DIR%\.tmp"
 set "TEMP=%PARENT_DIR%\.tmp"
+set "PIXI_FROZEN=true"
 if not exist "%PIXI_CACHE_DIR%" mkdir "%PIXI_CACHE_DIR%"
 if not exist "%PIP_CACHE_DIR%" mkdir "%PIP_CACHE_DIR%"
 if not exist "%TMP%" mkdir "%TMP%"
 
 cd /d "%PROJECT_DIR%"
-"%PIXI_EXE%" install --environment "%PIXI_ENV%"
+"%PIXI_EXE%" install --frozen --environment "%PIXI_ENV%"
 if errorlevel 1 exit /b 1
 "%PIXI_EXE%" run --environment "%PIXI_ENV%" python run.py --backend "%BACKEND%" !PASS_ARGS!
