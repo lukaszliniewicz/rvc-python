@@ -1,7 +1,9 @@
+import tomllib
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from packaging.requirements import Requirement
 
 import run
 from rvc_python.configs.config import Config
@@ -32,6 +34,19 @@ def test_fairseq_wheels_are_platform_specific_and_hash_pinned():
 def test_fairseq_wheel_rejects_unsupported_platform():
     with pytest.raises(RuntimeError, match="Supported platforms"):
         run.fairseq_wheel_for_platform("Linux", "aarch64")
+
+
+def test_windows_fairseq_runtime_dependency_is_declared():
+    project = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
+    dependencies = {
+        Requirement(value).name: Requirement(value)
+        for value in project["project"]["dependencies"]
+    }
+
+    rotary = dependencies["rotary-embedding-torch"]
+    assert rotary.marker is not None
+    assert rotary.marker.evaluate({"sys_platform": "win32"})
+    assert not rotary.marker.evaluate({"sys_platform": "linux"})
 
 
 def test_prepare_runtime_installs_verified_platform_wheel_when_fairseq_is_missing():

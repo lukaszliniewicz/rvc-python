@@ -43,6 +43,7 @@ dependencies = [
   "bitarray",
   "scikit-learn",
   "packaging",
+  "rotary-embedding-torch>=0.8.9,<1; sys_platform == 'win32'",
 ]
 
 [dependency-groups]
