@@ -86,4 +86,7 @@ mkdir -p -- "$PIXI_CACHE_DIR" "$PIP_CACHE_DIR" "$TMPDIR"
 
 cd -- "$PROJECT_DIR"
 "$PIXI_EXE" install --frozen --environment "$PIXI_ENV"
-exec "$PIXI_EXE" run --environment "$PIXI_ENV" python run.py --backend "$BACKEND" "${PASS_ARGS[@]}"
+# Keep this shell as the stable root process for supervisors such as Pandrator
+# Manager. Replacing it with Pixi via `exec` changes the recorded executable at
+# the same PID and can be mistaken for PID reuse by conservative supervisors.
+"$PIXI_EXE" run --environment "$PIXI_ENV" python run.py --backend "$BACKEND" "${PASS_ARGS[@]}"
